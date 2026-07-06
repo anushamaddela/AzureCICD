@@ -1,0 +1,155 @@
+trigger: none
+
+pr:
+  branches:
+    include:
+      - develop
+      - main
+
+parameters:
+
+- name: action
+  displayName: Terraform Action
+  type: string
+  default: plan
+
+  values:
+    - validate
+    - plan
+    - apply
+
+- name: environment
+  displayName: Environment
+
+  type: string
+
+  default: dev
+
+  values:
+    - dev
+
+variables:
+
+- name: terraformVersion
+  value: '1.12.2'
+
+- name: workingDirectory
+  value: terraform/environments/${{ parameters.environment }}
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+
+##########################################
+# Checkout
+##########################################
+
+- checkout: self
+
+##########################################
+# Install Terraform
+##########################################
+
+- task: TerraformInstaller@1
+  displayName: Install Terraform
+
+  inputs:
+    terraformVersion: $(terraformVersion)
+
+##########################################
+# Azure Login
+##########################################
+
+- task: AzureCLI@2
+  displayName: Azure Login
+
+  inputs:
+
+    azureSubscription: azure-devops-sc
+
+    scriptType: bash
+
+    scriptLocation: inlineScript
+
+    inlineScript: |
+
+      az account show
+
+##########################################
+# Terraform Init
+##########################################
+
+- script: |
+
+    cd $(workingDirectory)
+
+    terraform init
+
+  displayName: Terraform Init
+
+##########################################
+# Terraform Format
+##########################################
+
+- script: |
+
+    terraform fmt -recursive -check
+
+  displayName: Terraform Format
+
+##########################################
+# Terraform Validate
+##########################################
+
+- script: |
+
+    cd $(workingDirectory)
+
+    terraform validate
+
+  displayName: Terraform Validate
+
+##########################################
+# Terraform Plan
+##########################################
+
+- script: |
+
+    cd $(workingDirectory)
+
+    terraform plan -out=tfplan
+
+  displayName: Terraform Plan
+
+  condition: or(eq('${{ parameters.action }}','plan'),
+                eq('${{ parameters.action }}','apply'))
+
+##########################################
+# Publish Plan
+##########################################
+
+- task: PublishPipelineArtifact@1
+
+  condition: or(eq('${{ parameters.action }}','plan'),
+                eq('${{ parameters.action }}','apply'))
+
+  inputs:
+
+    targetPath: $(workingDirectory)/tfplan
+
+    artifact: tfplan
+
+##########################################
+# Terraform Apply
+##########################################
+
+- script: |
+
+    cd $(workingDirectory)
+
+    terraform apply -auto-approve tfplan
+
+  displayName: Terraform Apply
+
+  condition: eq('${{ parameters.action }}','apply')
